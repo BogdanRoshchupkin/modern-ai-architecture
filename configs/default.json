@@ -1,0 +1,12 @@
+{
+  "common_crawl_snapshot": "CC-MAIN-2024-42",
+  "common_crawl_base_url": "https://data.commoncrawl.org/",
+  "language_allowlist": ["en"],
+  "max_words_per_object": 650,
+  "min_words_per_object": 20,
+  "sequence_length": 512,
+  "bpe_vocab_size": 8000,
+  "entropy_model": "gpt2",
+  "entropy_low_quantile": 0.02,
+  "entropy_high_quantile": 0.98
+}
