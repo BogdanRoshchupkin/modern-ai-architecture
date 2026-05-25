@@ -10,7 +10,13 @@ env/
 
 data/raw/
 data/processed/
-checkpoints/
+checkpoints/*
+!checkpoints/.gitkeep
+!checkpoints/**/
+!checkpoints/**/final*.ckpt
+logs/
+lightning_logs/
+.env
 *.bin
 *.pt
 *.pth
