@@ -1,10 +1,10 @@
 seed: 42
 
 paths:
-  train_data: data/processed/wikitext_packed.jsonl
-  tokenizer: data/processed/common_crawl_bpe.json
-  checkpoint_dir: checkpoints/lab2_vocab1000
-  log_dir: logs/tensorboard
+  train_data: ${oc.env:ROOT_DIR}/data/processed/wikitext_packed.jsonl
+  tokenizer: ${oc.env:ROOT_DIR}/data/processed/common_crawl_bpe.json
+  checkpoint_dir: ${oc.env:ROOT_DIR}/checkpoints/lab2_vocab1000
+  log_dir: ${oc.env:ROOT_DIR}/logs/tensorboard
 
 model:
   vocab_size: 1000

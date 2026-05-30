@@ -1,23 +1,16 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 
-@dataclass
-class GPTConfig:
-    vocab_size: int
-    max_seq_len: int = 512
-    d_model: int = 256
-    n_layers: int = 4
-    n_heads: int = 4
-    d_ff: int = 1024
-    dropout: float = 0.1
-    pad_token_id: int = 0
+def _config_value(config: Any, key: str, default: Any | None = None) -> Any:
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
 
 
 def packed_position_ids(segment_ids: torch.Tensor) -> torch.Tensor:
@@ -88,7 +81,7 @@ class MultiHeadMaskedSelfAttention(nn.Module):
         scores = scores / math.sqrt(self.head_dim)
         mask = block_causal_attention_mask(segment_ids).unsqueeze(1)
         scores = scores.masked_fill(~mask, -1e4)
-        weights = F.softmax(scores, dim=-1)
+        weights = torch.softmax(scores, dim=-1)
         weights = self.attn_dropout(weights)
         output = weights @ v
         output = output.transpose(1, 2).contiguous().view(batch_size, seq_len, d_model)
@@ -113,12 +106,16 @@ class FeedForward(nn.Module):
 class TransformerBlock(nn.Module):
     """Post-norm transformer block required by the lab statement."""
 
-    def __init__(self, config: GPTConfig) -> None:
+    def __init__(self, config: Any) -> None:
         super().__init__()
-        self.attention = MultiHeadMaskedSelfAttention(config.d_model, config.n_heads, config.dropout)
-        self.attn_norm = nn.LayerNorm(config.d_model)
-        self.ffn = FeedForward(config.d_model, config.d_ff, config.dropout)
-        self.ffn_norm = nn.LayerNorm(config.d_model)
+        d_model = int(_config_value(config, "d_model"))
+        n_heads = int(_config_value(config, "n_heads"))
+        d_ff = int(_config_value(config, "d_ff"))
+        dropout = float(_config_value(config, "dropout"))
+        self.attention = MultiHeadMaskedSelfAttention(d_model, n_heads, dropout)
+        self.attn_norm = nn.LayerNorm(d_model)
+        self.ffn = FeedForward(d_model, d_ff, dropout)
+        self.ffn_norm = nn.LayerNorm(d_model)
 
     def forward(self, x: torch.Tensor, segment_ids: torch.Tensor) -> torch.Tensor:
         z = self.attn_norm(x + self.attention(x, segment_ids))
@@ -126,18 +123,24 @@ class TransformerBlock(nn.Module):
 
 
 class GPTLikeModel(nn.Module):
-    def __init__(self, config: GPTConfig) -> None:
+    def __init__(self, config: Any) -> None:
         super().__init__()
         self.config = config
-        self.token_embedding = nn.Embedding(config.vocab_size, config.d_model, padding_idx=config.pad_token_id)
+        vocab_size = int(_config_value(config, "vocab_size"))
+        max_seq_len = int(_config_value(config, "max_seq_len", 512))
+        d_model = int(_config_value(config, "d_model", 256))
+        n_layers = int(_config_value(config, "n_layers", 4))
+        dropout = float(_config_value(config, "dropout", 0.1))
+        pad_token_id = int(_config_value(config, "pad_token_id", 0))
+        self.token_embedding = nn.Embedding(vocab_size, d_model, padding_idx=pad_token_id)
         self.position_encoding = SinusoidalPositionalEncoding(
-            config.d_model,
-            config.max_seq_len,
-            dropout=config.dropout,
+            d_model,
+            max_seq_len,
+            dropout=dropout,
         )
-        self.blocks = nn.ModuleList([TransformerBlock(config) for _ in range(config.n_layers)])
-        self.final_norm = nn.LayerNorm(config.d_model)
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        self.blocks = nn.ModuleList([TransformerBlock(config) for _ in range(n_layers)])
+        self.final_norm = nn.LayerNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         self.apply(self._init_weights)
         self.lm_head.weight = self.token_embedding.weight
 
@@ -164,23 +167,27 @@ class GPTLikeModel(nn.Module):
         return self.lm_head(self.final_norm(x))
 
 
-def masked_language_model_loss_and_count(
-    logits: torch.Tensor,
-    input_ids: torch.Tensor,
-    segment_ids: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    prediction_logits = logits[:, :-1, :].contiguous()
-    labels = input_ids[:, 1:].contiguous()
-    loss_mask = language_model_loss_mask(segment_ids)
-    losses = F.cross_entropy(
-        prediction_logits.view(-1, prediction_logits.size(-1)),
-        labels.view(-1),
-        reduction="none",
-    ).view_as(labels)
-    valid_count = loss_mask.sum().clamp_min(1)
-    return (losses * loss_mask).sum() / valid_count, valid_count
+class MaskedLanguageModelingLoss(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.cross_entropy = nn.CrossEntropyLoss(reduction="none")
 
+    def forward_with_count(
+        self,
+        logits: torch.Tensor,
+        input_ids: torch.Tensor,
+        segment_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        prediction_logits = logits[:, :-1, :].contiguous()
+        labels = input_ids[:, 1:].contiguous()
+        loss_mask = language_model_loss_mask(segment_ids)
+        losses = self.cross_entropy(
+            prediction_logits.view(-1, prediction_logits.size(-1)),
+            labels.view(-1),
+        ).view_as(labels)
+        valid_count = loss_mask.sum().clamp_min(1)
+        return (losses * loss_mask).sum() / valid_count, valid_count
 
-def masked_language_model_loss(logits: torch.Tensor, input_ids: torch.Tensor, segment_ids: torch.Tensor) -> torch.Tensor:
-    loss, _ = masked_language_model_loss_and_count(logits, input_ids, segment_ids)
-    return loss
+    def forward(self, logits: torch.Tensor, input_ids: torch.Tensor, segment_ids: torch.Tensor) -> torch.Tensor:
+        loss, _ = self.forward_with_count(logits, input_ids, segment_ids)
+        return loss

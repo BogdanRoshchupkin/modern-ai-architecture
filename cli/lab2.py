@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import lightning as L
@@ -12,6 +13,25 @@ from src.training.data_module import PackedDataModule
 from src.training.generation import generate_text
 from src.training.lightning_module import GPTLightningModule
 from src.tokenization.bpe import BpeTokenizer
+
+
+def load_env_file(env_path: str | Path) -> None:
+    path = Path(env_path)
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+def load_config(config_path: str):
+    root_dir = Path(__file__).resolve().parents[1]
+    load_env_file(root_dir / ".env")
+    os.environ.setdefault("ROOT_DIR", str(root_dir))
+    return OmegaConf.load(config_path)
 
 
 def init_clearml(config) -> None:
@@ -29,7 +49,7 @@ def init_clearml(config) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> None:
-    config = OmegaConf.load(args.config)
+    config = load_config(args.config)
     if args.data:
         config.paths.train_data = args.data
     if args.resume_from_checkpoint:
@@ -87,7 +107,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def cmd_generate(args: argparse.Namespace) -> None:
-    config = OmegaConf.load(args.config)
+    config = load_config(args.config)
     text = generate_text(
         checkpoint_path=args.checkpoint,
         config=config,

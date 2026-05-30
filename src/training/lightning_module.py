@@ -10,21 +10,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 from torchmetrics import MeanMetric
 
-from src.models.gpt import GPTConfig, GPTLikeModel, masked_language_model_loss_and_count
-
-
-def config_to_gpt_config(config: DictConfig) -> GPTConfig:
-    model_config = config.model
-    return GPTConfig(
-        vocab_size=int(model_config.vocab_size),
-        max_seq_len=int(model_config.max_seq_len),
-        d_model=int(model_config.d_model),
-        n_layers=int(model_config.n_layers),
-        n_heads=int(model_config.n_heads),
-        d_ff=int(model_config.d_ff),
-        dropout=float(model_config.dropout),
-        pad_token_id=int(model_config.pad_token_id),
-    )
+from src.models.gpt import GPTLikeModel, MaskedLanguageModelingLoss
 
 
 class GPTLightningModule(LightningModule):
@@ -32,7 +18,8 @@ class GPTLightningModule(LightningModule):
         super().__init__()
         self.config = OmegaConf.create(config)
         self.save_hyperparameters(OmegaConf.to_container(self.config, resolve=True))
-        self.model = GPTLikeModel(config_to_gpt_config(self.config))
+        self.model = GPTLikeModel(self.config.model)
+        self.loss_fn = MaskedLanguageModelingLoss()
         self.train_epoch_loss = MeanMetric()
         self.val_epoch_loss = MeanMetric()
 
@@ -41,7 +28,7 @@ class GPTLightningModule(LightningModule):
 
     def _step(self, batch: dict[str, torch.Tensor], prefix: str) -> torch.Tensor:
         logits = self(batch["input_ids"], batch["segment_ids"])
-        loss, valid_tokens = masked_language_model_loss_and_count(
+        loss, valid_tokens = self.loss_fn.forward_with_count(
             logits,
             batch["input_ids"],
             batch["segment_ids"],

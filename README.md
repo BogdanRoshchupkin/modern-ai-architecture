@@ -47,8 +47,17 @@ gradient_clip_val: 1.0
 
 ```bash
 pip install -r requirements.txt
+cp .env.example .env
 python -m cli.lab2 train --config configs/lab2_gpt.yaml
 ```
+
+В `.env` нужно указать абсолютный путь к корню репозитория:
+
+```dotenv
+ROOT_DIR=/absolute/path/to/modern-ai-architecture
+```
+
+Файл `.env` добавлен в `.gitignore`, поэтому локальный путь не попадает в GitHub.
 
 Продолжить обучение:
 
