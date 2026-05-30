@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
-
-@dataclass
-class PackedBatch:
-    input_ids: list[list[int]]
-    attention_mask: list[list[int]]
+import torch
 
 
-def pack_sequences(sequences: Iterable[list[int]], max_length: int = 512, pad_id: int = 0) -> PackedBatch:
+def pack_sequences(
+    sequences: Iterable[list[int]],
+    max_length: int = 512,
+    pad_id: int = 0,
+) -> tuple[torch.Tensor, torch.Tensor]:
     packed_rows: list[list[int]] = []
     masks: list[list[int]] = []
     current: list[int] = []
@@ -44,4 +43,4 @@ def pack_sequences(sequences: Iterable[list[int]], max_length: int = 512, pad_id
             else:
                 segment_id += 1
     flush()
-    return PackedBatch(input_ids=packed_rows, attention_mask=masks)
+    return torch.tensor(packed_rows, dtype=torch.long), torch.tensor(masks, dtype=torch.long)
