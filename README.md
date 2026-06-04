@@ -107,3 +107,37 @@ checkpoints/lab2_vocab1000/final-epoch=19-val_perplexity=8.30.ckpt
 ```text
 The history of artificial intelligence is a partial location in the city , which is now known for the city 's fossils , can be taken from the Capitol Columbia .
 ```
+
+## Лабораторная работа 3. Flash Attention
+
+Реализация находится в `src/backend/flash_attention.py`:
+
+- torch reference для masked causal attention;
+- блочный forward masked FlashAttention без вычисления полностью замаскированных блоков;
+- wrapper `masked_flash_attention`;
+- `MaskedFlashAttentionFunction`, наследуемый от `torch.autograd.Function`;
+- `MaskedFlashAttention`, наследуемый от `torch.nn.Module`;
+- benchmark против torch-реализации.
+
+Проверить корректность:
+
+```bash
+python -m pytest tests/test_flash_attention.py -q
+```
+
+Запустить полный набор тестов:
+
+```bash
+python -m pytest -q
+```
+
+Запустить бенчмарк:
+
+```bash
+python -m cli.lab3 --seq-len 512 --head-dim 64 --heads 4 --batch-size 2 --repeats 10
+```
+
+На локальной машине без CUDA/Triton используется PyTorch-блочная
+реализация с тем же интерфейсом. Она проверяет численную корректность
+и экономию памяти score-матрицы; для реального GPU-бенчмарка команду
+нужно запустить в CUDA-окружении.
