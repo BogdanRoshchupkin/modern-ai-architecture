@@ -228,6 +228,7 @@ def benchmark_flash_attention(
     block_n: int = 64,
     repeats: int = 10,
     device: str | None = None,
+    backend: str = "torch-blocked",
 ) -> BenchmarkResult:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     dtype = torch.float16 if device == "cuda" else torch.float32
@@ -237,10 +238,18 @@ def benchmark_flash_attention(
     segment_ids = torch.ones(batch_size, seq_len, device=device, dtype=torch.long)
 
     torch_masked_attention(q, k, v, segment_ids)
-    masked_flash_attention_forward(q, k, v, segment_ids, block_m, block_n)
+    if backend == "torch-blocked":
+        flash_fn = lambda: masked_flash_attention_forward(q, k, v, segment_ids, block_m, block_n)
+    elif backend == "triton":
+        from src.backend.flash_attention_triton import triton_masked_flash_attention
+
+        flash_fn = lambda: triton_masked_flash_attention(q, k, v, segment_ids, block_m, block_n)
+    else:
+        raise ValueError(f"Unknown backend: {backend}")
+    flash_fn()
 
     torch_ms = _time_call(lambda: torch_masked_attention(q, k, v, segment_ids), repeats)
-    flash_ms = _time_call(lambda: masked_flash_attention_forward(q, k, v, segment_ids, block_m, block_n), repeats)
+    flash_ms = _time_call(flash_fn, repeats)
 
     element_size = q.element_size()
     torch_memory = batch_size * n_heads * seq_len * seq_len * element_size / (1024**2)
@@ -265,6 +274,7 @@ def build_benchmark_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-n", type=int, default=64)
     parser.add_argument("--repeats", type=int, default=10)
     parser.add_argument("--device")
+    parser.add_argument("--backend", choices=["torch-blocked", "triton"], default="torch-blocked")
     return parser
 
 
@@ -278,4 +288,5 @@ def run_benchmark_from_args(args: argparse.Namespace) -> BenchmarkResult:
         block_n=args.block_n,
         repeats=args.repeats,
         device=args.device,
+        backend=args.backend,
     )

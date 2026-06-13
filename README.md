@@ -1,7 +1,8 @@
 # Лабораторная работа 3. Flash Attention
 
 Реализация маскированного FlashAttention находится в
-`src/backend/flash_attention.py`. Код работает с тензорами формата
+`src/backend/flash_attention.py` и `src/backend/flash_attention_triton.py`.
+Код работает с тензорами формата
 `[batch, heads, seq_len, head_dim]` и `segment_ids` формата
 `[batch, seq_len]`. Маска одновременно учитывает:
 
@@ -19,6 +20,11 @@
 - `masked_flash_attention_backward` - явная формула backward для `q`, `k`, `v`;
 - `MaskedFlashAttentionFunction` - собственный `torch.autograd.Function`;
 - `MaskedFlashAttention` - `torch.nn.Module`-обертка;
+- `triton_masked_flash_attention` - CUDA/Triton backend с `@triton.jit`
+  forward и backward kernels;
+- `TritonMaskedFlashAttentionFunction` - `torch.autograd.Function` для
+  Triton kernels;
+- `TritonMaskedFlashAttention` - `torch.nn.Module`-обертка для CUDA/Triton;
 - `benchmark_flash_attention` и `cli/lab3.py` - сравнение времени и памяти
   с torch-реализацией.
 
@@ -32,6 +38,8 @@
 - совпадение backward-градиентов по `q`, `k`, `v`;
 - отдельный backward wrapper;
 - работа `torch.nn.Module`-обертки.
+- CUDA/Triton forward и backward tests, которые автоматически пропускаются
+  на машинах без CUDA/Triton.
 
 Проверить корректность:
 
@@ -48,7 +56,7 @@ python -m pytest -q
 Ожидаемый результат:
 
 ```text
-17 passed
+CPU-only: 4 passed, 2 skipped for FlashAttention tests
 ```
 
 ### Бенчмарк
@@ -57,6 +65,19 @@ python -m pytest -q
 
 ```bash
 python -m cli.lab3 --seq-len 512 --head-dim 64 --heads 4 --batch-size 2 --repeats 10
+```
+
+Запустить Triton backend в Colab T4:
+
+```bash
+python -m cli.lab3 \
+  --backend triton \
+  --device cuda \
+  --seq-len 512 \
+  --head-dim 64 \
+  --heads 4 \
+  --batch-size 2 \
+  --repeats 10
 ```
 
 Пример результата на CPU:
@@ -79,6 +100,11 @@ score-memory reduction: 64.00x
 - в примере память уменьшилась с `8.00 MB` до `0.12 MB`, то есть в `64x`;
 - для реального ускорения по времени нужен CUDA/Triton GPU backend.
 
-В PDF рекомендуется использовать Python, PyTorch и Triton. Локальная версия
-реализует тот же интерфейс и проверяет forward/backward/benchmark на CPU;
-для GPU-демонстрации команду бенчмарка нужно запускать в CUDA-окружении.
+Для удобного запуска на Google Colab T4 есть notebook:
+
+```text
+notebooks/lab3_colab_cuda_benchmark.ipynb
+```
+
+Он проверяет CUDA, ставит зависимости, запускает CUDA/Triton тесты и строит
+таблицу/графики benchmark для `torch-blocked` и `triton` backend.

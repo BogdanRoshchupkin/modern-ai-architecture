@@ -7,6 +7,7 @@ def main() -> None:
     parser = build_benchmark_parser()
     args = parser.parse_args()
     result = run_benchmark_from_args(args)
+    print(f"backend: {args.backend}")
     print(f"torch attention median: {result.torch_ms:.3f} ms")
     print(f"flash attention median: {result.flash_ms:.3f} ms")
     print(f"speedup: {result.speedup:.2f}x")
