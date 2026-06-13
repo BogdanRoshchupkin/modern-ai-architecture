@@ -1,109 +1,110 @@
-# Лабораторная работа 2. Обучение языковой модели
+# Лабораторная работа 3. Flash Attention
 
-GPT-like языковая модель обучается на packed dataset и собственном
-BPE-токенизаторе, подготовленных для `wikitext`.
+Реализация маскированного FlashAttention находится в
+`src/backend/flash_attention.py` и `src/backend/flash_attention_triton.py`.
+Код работает с тензорами формата
+`[batch, heads, seq_len, head_dim]` и `segment_ids` формата
+`[batch, seq_len]`. Маска одновременно учитывает:
 
-## Архитектура
+- causal attention: токен не смотрит в будущие позиции;
+- packed-сегменты: токены из разных объектов не attend друг к другу;
+- padding: сегмент `0` полностью исключается из attention.
 
-Модель реализована в `src/models/gpt.py`:
+### Что реализовано
 
-- синусоидальное позиционное кодирование с обнулением позиции в начале каждого packed-сегмента;
-- многоголовое masked self-attention с block mask между независимыми объектами;
-- FFN-блок `Linear -> GELU -> Linear`;
-- post-norm transformer layer: `LayerNorm(x + Attention(x))`, затем `LayerNorm(z + FFN(z))`;
-- LM-head, возвращающий логиты без дополнительного `Softmax`;
-- loss mask, исключающая переходы между разными packed-сегментами и `<PAD>`.
+- `torch_masked_attention` - reference-реализация на PyTorch для сравнения;
+- `masked_flash_attention_forward` - блочный forward FlashAttention;
+- fully masked блоки `S_i,j` пропускаются через `continue`;
+- online softmax использует `row_max`, `row_sum` и аккумулятор `acc`, поэтому
+  полная score-матрица `[seq_len, seq_len]` не хранится;
+- `masked_flash_attention_backward` - явная формула backward для `q`, `k`, `v`;
+- `MaskedFlashAttentionFunction` - собственный `torch.autograd.Function`;
+- `MaskedFlashAttention` - `torch.nn.Module`-обертка;
+- `triton_masked_flash_attention` - CUDA/Triton backend с `@triton.jit`
+  forward и backward kernels;
+- `TritonMaskedFlashAttentionFunction` - `torch.autograd.Function` для
+  Triton kernels;
+- `TritonMaskedFlashAttention` - `torch.nn.Module`-обертка для CUDA/Triton;
+- `benchmark_flash_attention` и `cli/lab3.py` - сравнение времени и памяти
+  с torch-реализацией.
 
-Основная конфигурация находится в `configs/lab2_gpt.yaml`:
+### Тесты
 
-```yaml
-vocab_size: 1000
-max_seq_len: 512
-d_model: 256
-n_layers: 6
-n_heads: 4
-d_ff: 1024
-dropout: 0.05
-batch_size: 8
-max_epochs: 20
-learning_rate: 0.0005
-warmup_steps: 300
-gradient_clip_val: 1.0
-```
+Тесты находятся в `tests/test_flash_attention.py`.
 
-Словарь `1000` выбран для обучения небольшой модели с нуля на `wikitext`.
-В первом эксперименте словарь `8000` дал `val_perplexity=208.607`.
+Проверяется:
 
-## Инфраструктура
+- совпадение forward с torch reference через `torch.testing.assert_close`;
+- совпадение backward-градиентов по `q`, `k`, `v`;
+- отдельный backward wrapper;
+- работа `torch.nn.Module`-обертки.
+- CUDA/Triton forward и backward tests, которые автоматически пропускаются
+  на машинах без CUDA/Triton.
 
-- `src/training/data_module.py` - чтение packed dataset и train/validation split;
-- `src/training/lightning_module.py` - обучение, perplexity, warm-up, scheduler и gradient norms;
-- `src/training/generation.py` - генерация из checkpoint;
-- `cli/lab2.py` - команды обучения и инференса;
-- TensorBoard logging и опциональная интеграция ClearML;
-- `ModelCheckpoint` с сохранением лучшей модели по `val_perplexity`.
-
-## Запуск
+Проверить корректность:
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env
-python -m cli.lab2 train --config configs/lab2_gpt.yaml
+python -m pytest tests/test_flash_attention.py -q
 ```
 
-В `.env` нужно указать абсолютный путь к корню репозитория:
-
-```dotenv
-ROOT_DIR=/absolute/path/to/modern-ai-architecture
-```
-
-Файл `.env` добавлен в `.gitignore`, поэтому локальный путь не попадает в GitHub.
-
-Продолжить обучение:
+Запустить полный набор тестов:
 
 ```bash
-python -m cli.lab2 train \
-  --config configs/lab2_gpt.yaml \
-  --resume-from-checkpoint checkpoints/lab2_vocab1000/last.ckpt
+python -m pytest -q
 ```
 
-Посмотреть TensorBoard:
-
-```bash
-tensorboard --logdir logs/tensorboard
-```
-
-Сгенерировать текст из лучшего checkpoint:
-
-```bash
-python -m cli.lab2 generate \
-  --config configs/lab2_gpt.yaml \
-  --checkpoint checkpoints/lab2_vocab1000/final-epoch=19-val_perplexity=8.30.ckpt \
-  --prompt "The history of artificial intelligence"
-```
-
-## Результаты
-
-После исправления инициализации модели и перехода на BPE-словарь размера
-`1000` получены результаты:
+Ожидаемый результат:
 
 ```text
-train_loss: 2.043
-train_perplexity: 7.712
-val_loss: 2.117
-val_perplexity: 8.303
+CPU-only: 4 passed, 2 skipped for FlashAttention tests
 ```
 
-Порог задания `val_perplexity <= 30` достигнут.
+### Бенчмарк
 
-Лучший checkpoint:
+Запустить бенчмарк:
+
+```bash
+python -m cli.lab3 --seq-len 512 --head-dim 64 --heads 4 --batch-size 2 --repeats 10
+```
+
+Запустить Triton backend в Colab T4:
+
+```bash
+python -m cli.lab3 \
+  --backend triton \
+  --device cuda \
+  --seq-len 512 \
+  --head-dim 64 \
+  --heads 4 \
+  --batch-size 2 \
+  --repeats 10
+```
+
+Пример результата на CPU:
 
 ```text
-checkpoints/lab2_vocab1000/final-epoch=19-val_perplexity=8.30.ckpt
+torch attention median: 5.536 ms
+flash attention median: 9.630 ms
+speedup: 0.57x
+torch score matrix memory: 8.00 MB
+flash score block memory: 0.12 MB
+score-memory reduction: 64.00x
 ```
 
-Пример генерации:
+Интерпретация:
+
+- `speedup < 1` на CPU означает, что блочная Python/PyTorch-реализация
+  медленнее оптимизированной torch-операции;
+- ключевой результат для FlashAttention здесь - уменьшение памяти под
+  score-матрицу: вместо полной матрицы используется только текущий блок;
+- в примере память уменьшилась с `8.00 MB` до `0.12 MB`, то есть в `64x`;
+- для реального ускорения по времени нужен CUDA/Triton GPU backend.
+
+Для удобного запуска на Google Colab T4 есть notebook:
 
 ```text
-The history of artificial intelligence is a partial location in the city , which is now known for the city 's fossils , can be taken from the Capitol Columbia .
+notebooks/lab3_colab_cuda_benchmark.ipynb
 ```
+
+Он проверяет CUDA, ставит зависимости, запускает CUDA/Triton тесты и строит
+таблицу/графики benchmark для `torch-blocked` и `triton` backend.
