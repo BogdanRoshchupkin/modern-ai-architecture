@@ -1,6 +1,6 @@
 beautifulsoup4>=4.12.3
 clearml>=1.16.0
-datasets>=2.20.0
+datasets>=2.20.0,<4.0.0
 ftfy>=6.2.0
 langdetect>=1.0.9
 lightning>=2.2.0
