@@ -108,3 +108,105 @@ notebooks/lab3_colab_cuda_benchmark.ipynb
 
 Он проверяет CUDA, ставит зависимости, запускает CUDA/Triton тесты и строит
 таблицу/графики benchmark для `torch-blocked` и `triton` backend.
+
+# Лабораторная работа 4. Инференс
+
+В ЛР4 модель из предыдущих работ расширена для инференса:
+
+- реализован GQA через отдельные `q_proj`, `k_proj`, `v_proj`;
+- добавлен параметр `n_kv_heads` в YAML-конфиг;
+- реализован KV-cache для autoregressive inference;
+- добавлен CLI для обучения и генерации;
+- подготовлен Colab notebook для полного запуска.
+
+## GQA
+
+Конфиг находится в `configs/lab4_gqa.yaml`.
+
+Ключевые параметры:
+
+```yaml
+n_heads: 4
+n_kv_heads: 2
+```
+
+Это означает, что query-heads остаются в количестве `4`, а key/value-heads
+становятся общими для групп query-heads. За счет этого уменьшается размер
+KV-проекций и KV-cache.
+
+## KV-cache
+
+Во время генерации prompt сначала проходит через модель целиком и создает
+cache по каждому transformer block. Затем каждый новый токен обрабатывается
+как один шаг:
+
+```text
+past K/V + new token -> next logits + updated K/V
+```
+
+Это ускоряет autoregressive inference, потому что модель не пересчитывает
+ключи и значения для всего префикса заново.
+
+## Команды
+
+Проверить GQA и KV-cache:
+
+```bash
+python -m pytest tests/test_gqa_kv_cache.py -q
+```
+
+Быстро проверить train loop:
+
+```bash
+python -m cli.lab4 train --config configs/lab4_gqa.yaml --fast-dev-run
+```
+
+Запустить обучение:
+
+```bash
+python -m cli.lab4 train --config configs/lab4_gqa.yaml
+```
+
+Сгенерировать текст с KV-cache:
+
+```bash
+python -m cli.lab4 generate \
+  --config configs/lab4_gqa.yaml \
+  --checkpoint checkpoints/lab4_gqa/final-epoch=XX-val_perplexity=YY.ckpt \
+  --prompt "The history of artificial intelligence"
+```
+
+Сгенерировать текст без KV-cache для сравнения:
+
+```bash
+python -m cli.lab4 generate \
+  --config configs/lab4_gqa.yaml \
+  --checkpoint checkpoints/lab4_gqa/final-epoch=XX-val_perplexity=YY.ckpt \
+  --prompt "The history of artificial intelligence" \
+  --no-kv-cache
+```
+
+## Colab
+
+Для запуска на T4 подготовлен notebook:
+
+```text
+notebooks/lab4_colab_inference.ipynb
+```
+
+Он по ячейкам:
+
+- клонирует ветку `lab4`;
+- ставит зависимости;
+- создает `.env` с `ROOT_DIR`;
+- готовит Wikitext, BPE tokenizer и packed dataset;
+- запускает GQA/KV-cache tests;
+- обучает модель;
+- показывает TensorBoard;
+- генерирует текст из лучшего checkpoint;
+- копирует checkpoints/logs/config в Google Drive.
+
+Критерии PDF:
+
+- `val_perplexity <= 40` - частичный балл за обучение;
+- `val_perplexity <= 25` - полный балл за обучение.
