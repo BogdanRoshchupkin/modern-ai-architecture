@@ -23,8 +23,13 @@ class GPTLightningModule(LightningModule):
         self.train_epoch_loss = MeanMetric()
         self.val_epoch_loss = MeanMetric()
 
-    def forward(self, input_ids: torch.Tensor, segment_ids: torch.Tensor) -> torch.Tensor:
-        return self.model(input_ids, segment_ids)
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        segment_ids: torch.Tensor,
+        **model_kwargs: Any,
+    ) -> torch.Tensor:
+        return self.model(input_ids, segment_ids, **model_kwargs)
 
     def _step(self, batch: dict[str, torch.Tensor], prefix: str) -> torch.Tensor:
         logits = self(batch["input_ids"], batch["segment_ids"])
