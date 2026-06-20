@@ -6,7 +6,10 @@ from datasets import load_dataset
 
 
 def iter_wikitext(split: str = "train", name: str = "wikitext-2-raw-v1", limit: int | None = None) -> Iterator[dict]:
-    dataset = load_dataset("wikitext", name, split=split)
+    try:
+        dataset = load_dataset("Salesforce/wikitext", name, split=split)
+    except Exception:
+        dataset = load_dataset("wikitext", name, split=split)
     emitted = 0
     for index, row in enumerate(dataset):
         text = row.get("text", "")

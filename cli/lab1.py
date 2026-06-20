@@ -105,7 +105,11 @@ def cmd_tokenize(args: argparse.Namespace) -> None:
         print(f"Loaded BPE tokenizer: {args.bpe_load}")
     else:
         bpe_tokenizer = BpeTokenizer(vocab_size=args.bpe_vocab_size)
-        bpe_tokenizer.train(texts)
+        bpe_tokenizer.train(
+            texts,
+            max_documents=args.bpe_train_limit,
+            min_pair_frequency=args.bpe_min_pair_frequency,
+        )
         bpe_tokenizer.save(args.bpe_output)
         print(f"Saved BPE tokenizer: {args.bpe_output}")
     bpe_ids = bpe_tokenizer.encode(sample)
@@ -131,10 +135,14 @@ def cmd_pack(args: argparse.Namespace) -> None:
     tokenizer = BpeTokenizer.load(args.tokenizer)
     texts = [row["text"] for row in read_jsonl(args.input)]
     sequences = [tokenizer.encode(text) for text in texts]
-    packed = pack_sequences(sequences, max_length=args.max_length, pad_id=args.pad_id)
+    input_ids_tensor, attention_mask_tensor = pack_sequences(sequences, max_length=args.max_length, pad_id=args.pad_id)
     rows = [
         {"input_ids": input_ids, "attention_mask": attention_mask}
-        for input_ids, attention_mask in zip(packed.input_ids, packed.attention_mask, strict=True)
+        for input_ids, attention_mask in zip(
+            input_ids_tensor.tolist(),
+            attention_mask_tensor.tolist(),
+            strict=True,
+        )
     ]
     count = write_jsonl(args.output, rows)
     print(f"Packed batches: {count} -> {args.output}")
@@ -191,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     tokenize.add_argument("--bpe-vocab-size", type=int, default=8000)
     tokenize.add_argument("--bpe-output", default="data/processed/common_crawl_bpe.json")
     tokenize.add_argument("--bpe-load")
+    tokenize.add_argument("--bpe-train-limit", type=int)
+    tokenize.add_argument("--bpe-min-pair-frequency", type=int, default=2)
     tokenize.set_defaults(func=cmd_tokenize)
 
     prepare_wikitext = subparsers.add_parser("prepare-wikitext")

@@ -1,0 +1,46 @@
+seed: 42
+
+paths:
+  train_data: ${oc.env:ROOT_DIR}/data/processed/wikitext_packed.jsonl
+  tokenizer: ${oc.env:ROOT_DIR}/data/processed/common_crawl_bpe.json
+  checkpoint_dir: ${oc.env:ROOT_DIR}/checkpoints/lab4_gqa
+  log_dir: ${oc.env:ROOT_DIR}/logs/tensorboard
+
+model:
+  vocab_size: 1000
+  max_seq_len: 512
+  d_model: 256
+  n_layers: 6
+  n_heads: 8
+  n_kv_heads: 4
+  d_ff: 1024
+  dropout: 0.05
+  pad_token_id: 0
+
+training:
+  batch_size: 8
+  num_workers: 0
+  max_epochs: 20
+  learning_rate: 0.0003
+  weight_decay: 0.01
+  warmup_steps: 300
+  min_lr_ratio: 0.1
+  gradient_clip_val: 1.0
+  val_fraction: 0.1
+  log_every_n_steps: 20
+  accumulate_grad_batches: 1
+  precision: 32-true
+  accelerator: auto
+  devices: 1
+
+logging:
+  experiment_name: lab4_gqa_kv_cache
+  tensorboard_name: gqa_kv_cache
+  clearml_enabled: false
+  clearml_project: modern-ai-architecture
+
+generation:
+  max_new_tokens: 80
+  temperature: 0.6
+  top_k: 10
+  use_kv_cache: true
