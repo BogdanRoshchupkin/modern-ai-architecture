@@ -1,10 +1,32 @@
 from __future__ import annotations
 
+import warnings
+
 import torch
 from omegaconf import DictConfig
 
-from src.tokenization.bpe import BpeTokenizer
+from src.tokenization.bpe import BpeTokenizer, bpe_file_sha256
 from src.training.lightning_module import GPTLightningModule
+
+
+def validate_checkpoint_tokenizer(checkpoint_path: str, tokenizer_path: str) -> None:
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    paths = checkpoint.get("hyper_parameters", {}).get("paths", {})
+    expected_hash = paths.get("tokenizer_sha256")
+    if not expected_hash:
+        warnings.warn(
+            "Checkpoint does not contain tokenizer_sha256. "
+            "Make sure the tokenizer file is from the same training run.",
+            stacklevel=2,
+        )
+        return
+    actual_hash = bpe_file_sha256(tokenizer_path)
+    if actual_hash != expected_hash:
+        raise ValueError(
+            "Tokenizer fingerprint does not match the checkpoint. "
+            "Use the common_crawl_bpe.json saved with this checkpoint or retrain the model. "
+            f"checkpoint tokenizer_sha256={expected_hash}, current tokenizer_sha256={actual_hash}"
+        )
 
 
 @torch.no_grad()
@@ -20,6 +42,7 @@ def generate_text(
     use_kv_cache: bool = True,
 ) -> str:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    validate_checkpoint_tokenizer(checkpoint_path, tokenizer_path)
     tokenizer = BpeTokenizer.load(tokenizer_path)
     model = GPTLightningModule.load_from_checkpoint(checkpoint_path, config=config).to(device)
     model.eval()

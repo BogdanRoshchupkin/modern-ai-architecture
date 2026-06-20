@@ -12,7 +12,7 @@ from omegaconf import OmegaConf
 from src.training.data_module import PackedDataModule
 from src.training.generation import generate_text
 from src.training.lightning_module import GPTLightningModule
-from src.tokenization.bpe import BpeTokenizer
+from src.tokenization.bpe import BpeTokenizer, bpe_file_sha256
 
 
 def load_env_file(env_path: str | Path) -> None:
@@ -64,6 +64,7 @@ def cmd_train(args: argparse.Namespace) -> None:
             f"{tokenizer.vocab_size} != {config.model.vocab_size}. "
             "Re-run lab1 tokenize and pack with the intended BPE vocabulary size."
         )
+    config.paths.tokenizer_sha256 = bpe_file_sha256(config.paths.tokenizer)
 
     data_module = PackedDataModule(
         data_path=config.paths.train_data,

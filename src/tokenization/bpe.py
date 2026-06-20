@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from hashlib import sha256
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
@@ -10,6 +11,10 @@ from src.utils.io import ensure_parent
 
 TOKEN_RE = re.compile(r"\S+", flags=re.UNICODE)
 END_OF_WORD = "</w>"
+
+
+def bpe_file_sha256(path: str | Path) -> str:
+    return sha256(Path(path).read_bytes()).hexdigest()
 
 
 class BpeTokenizer:

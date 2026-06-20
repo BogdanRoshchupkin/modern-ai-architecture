@@ -27,8 +27,25 @@ def test_custom_bpe_tokenizer_trains_encodes_and_decodes():
 
     assert tokenizer.vocab_size <= 30
     assert ids
-    assert "low" in decoded
-    assert "newer" in decoded
+    assert decoded == "low newer"
+
+
+def test_custom_bpe_tokenizer_decodes_punctuation_and_generated_pieces():
+    tokenizer = BpeTokenizer(vocab_size=100)
+    tokenizer.train(
+        [
+            "The history of artificial intelligence.",
+            "Hello, world! This is a test.",
+            "FMI SI QIDRConI0 M*QM",
+        ]
+    )
+
+    for text in [
+        "Hello, world! This is a test.",
+        "The history of artificial intelligence",
+        "FMI SI QIDRConI0 M*QM",
+    ]:
+        assert tokenizer.decode(tokenizer.encode(text)) == text
 
 
 def test_custom_bpe_tokenizer_saves_and_loads(tmp_path):
